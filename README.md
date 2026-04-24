@@ -1,434 +1,537 @@
-# KiraFramework：以代码生成为核心的工业化开发框架设计思路解析
+# KiraFramework 技术分析
 
-## 一、框架概述
+KiraFramework 是一个基于 Unity 的工程化工具链原型，核心方向是把事件键、资源路径、UI 结构、ViewModel 元数据、枚举定义和配置表结构从手工约定提升为可生成、可编译、可校验的工程产物。
 
-### 1.1 设计目标与定位
-KiraFramework是一个**以学习提升为目的**设计的工业化开发框架原型，核心目标是探索**代码生成、工业化开发流程、强约束IDE提示**在现代游戏开发中的应用价值。框架体现了对工业化开发最佳实践的思考和实践。
+它的主线不是单个运行时系统，而是一条配置驱动的开发链路：
 
-### 1.2 核心设计理念
-框架的设计重心集中在三个核心领域：
+```text
+作者态输入 -> Editor 扫描/解析 -> 代码与数据生成 -> Unity 编译 -> Runtime 消费
+```
 
-#### 1.2.1 代码生成优先
-- **消除手写代码**：通过生成器自动产生重复性、模式化的代码
-- **确保一致性**：生成的代码遵循统一规范和模式
-- **减少人为错误**：避免手写代码中的拼写错误、格式不一致等问题
+当前实现使用 `ScriptableObject`、Prefab 和 Excel 作为输入载体，通过 Unity Editor 工具生成 C# 静态调用链、UI View 脚本、ViewModel、枚举代码、配置模型和 JSON 数据。运行时侧只消费生成后的类型、常量、配置数据和组件引用。
 
-#### 1.2.2 工业化开发流程
-- **强约束开发**：通过框架约束开发者的行为，确保代码质量
-- **标准化工作流**：定义清晰的配置→生成→使用流程
-- **工具链集成**：与现有开发工具（IDE、版本控制等）深度集成
+## 技术定位
 
-#### 1.2.3 极致开发体验
-- **链式调用API**：提供流畅、可读性强的API调用方式
-- **完整IDE提示**：利用C#强类型特性提供完整的代码补全和类型检查
-- **编译时验证**：在编译阶段发现潜在问题，而非运行时
+KiraFramework 当前更接近“围绕游戏元数据的领域编译器”，而不是单纯的运行时框架。它处理的核心对象包括：
 
-### 1.3 当前状态说明
-**重要澄清**：
-1. **学习性质**：框架目前是学习提升目的的设计原型，**尚未在任何线上游戏项目中实际应用**
-2. **平台依赖**：当前实现依赖Unity的ScriptableObject，**尚未实现真正的跨平台**
-3. **演进方向**：计划改用Luban导Xlsx配置，向真正的配置与引擎解耦演进
+- 事件定义
+- 资源路径定义
+- UI Prefab 组件结构
+- ViewModel 暴露字段
+- 枚举定义
+- Excel 配置表结构与数据
 
-## 二、核心设计解析：代码生成与工业化开发
+这些对象原本容易散落为字符串、手工拖拽字段、重复属性包装和人工同步配置。框架通过生成器把它们转成强类型接口和运行时数据，以减少硬编码和运行时错误。
 
-### 2.1 设计重心明确
-框架的设计重心不是构建完整的游戏开发套件，而是**探索代码生成在工业化开发中的价值**。所有其他组件（事件系统、MVVM等）都是为这个核心目标服务的配套设施。
+## 分层结构
 
-### 2.2 代码生成系统设计
+当前工程可以分为三层：
 
-#### 2.2.1 生成目标：消除手写代码
-**核心思想**：任何重复性、模式化的代码都应该由生成器产生
+```text
+Editor Layer
+    读取 ScriptableObject、Prefab、Excel
+    扫描程序集、解析表头、生成代码、回填 Prefab 引用、刷新 AssetDatabase
 
-**生成范围**：
-1. **调用链代码**：事件键、资源路径等链式调用结构
-2. **ViewModel代码**：根据配置自动生成视图模型类
-3. **导表工作流代码**：配置表对应的数据结构和加载逻辑
-4. **枚举定义**：业务中需要的各种枚举类型
+Generated Layer
+    输出 KiraEventKey、KiraAssetsPath、UILayer、GeneratedUI、ViewModel、Config Model、JSON
 
-#### 2.2.2 链式调用生成机制
-**设计目标**：提供极致开发体验的API
+Runtime Layer
+    提供 EventManager、KiraObject、UIManager、UIBase、ViewModelBase 等消费入口
+```
 
-**实现原理**：
+这个分层的关键点是：尽量把约束前移到编辑器和生成阶段，让运行时代码只使用已经生成好的接口和数据。
+
+## 目录结构
+
+```text
+Assets/
+├── Configs/
+│   ├── Enum/                  # 枚举定义资产
+│   └── KiraStatics/           # 静态调用链定义资产
+├── Editor/Scripts/Tools/      # Unity Editor 工具链
+├── Prefabs/UI/                # UI Prefab 输入
+├── Resources/ConfigJson/      # Excel 导出的运行时 JSON
+├── Scripts/
+│   ├── Core/
+│   │   ├── Base/              # IKiraEventKey、KiraObject、UIBase、MVVM 特性等
+│   │   ├── Manager/           # EventManager、UIManager
+│   │   └── SO_Script/         # MappingConfigSO、EnumDefinitionAsset、ViewModelConfigSO
+│   ├── Generated/
+│   │   ├── GeneratedEnums/    # 生成枚举
+│   │   ├── GeneratedJsonScripts/
+│   │   ├── GeneratedUI/
+│   │   └── KiraStatics/
+│   └── MVVM/
+│       ├── Model/
+│       ├── VM/base/
+│       └── VMSO/
+```
+
+## 核心模块
+
+| 模块 | 主要文件 | 技术职责 |
+| --- | --- | --- |
+| 静态调用链生成 | `MappingConfigSO`、`MappingEntry`、`StaticCodeGenerator` | 将路径型配置编译为 `KiraEventKey`、`KiraAssetsPath` 等嵌套静态 API |
+| 类型安全事件 | `IKiraEventKey`、`EventManager`、`KiraObject` | 使用泛型约束和 `Type` 作为事件键，替代字符串事件名 |
+| UI 运行时 | `UIBase`、`UIManager`、`UILayer` | 管理 UI 页面生命周期、Canvas 分层、页面缓存 |
+| UI View 生成 | `PrefabContextMenu`、`PrefabScriptGenerator`、`DeferredBinder` | 扫描 Prefab 组件，生成 partial View 脚本，编译后自动回填序列化字段 |
+| Prefab 命名维护 | `PrefabCreationWatcher` | 检测 Prefab 重名，自动生成唯一名称并同步场景实例 |
+| MVVM 元数据 | `MVVMAttributes`、`MVVMDataCache`、`ModelFieldBindingDrawer` | 扫描带特性的 Model/字段，并在 Inspector 中提供绑定下拉选项 |
+| ViewModel 生成 | `ViewModelConfigSO`、`ViewModelGenerator`、`ViewModelBase` | 根据绑定配置生成带 `SetProperty` 的 ViewModel 属性包装 |
+| Excel 配置管线 | `ExcelConfigTool`、`NewConfigModel`、`ConfigJson` | 创建 Excel 模板，生成模型脚本，编译后导出 JSON |
+| 枚举生成 | `EnumDefinitionAsset`、`EnumDefinitionAssetEditor` | 从 ScriptableObject 生成 C# 枚举 |
+
+## 静态调用链生成
+
+静态调用链由 `Assets/Configs/KiraStatics/*.asset` 定义。每个 `MappingConfigSO` 包含：
+
+- `RootClassName`：生成的根静态类名
+- `Entries`：若干 `MappingEntry`
+- `PathKeys`：嵌套路径节点
+- `FinalValue`：最终字符串值
+
+`StaticCodeGenerator` 的生成规则：
+
+- `FinalValue` 为空时，生成实现 `IKiraEventKey` 的类型。
+- `FinalValue` 非空时，生成 `const string`。
+- 节点同时存在子节点和自身值时，生成容器类，并在内部生成 `Value` 常量。
+
+示例产物：
+
 ```csharp
-// 生成的代码结构示例
-namespace KiraEventKey
+namespace Game.Statics
 {
-    public static class GamePlay
+    public static class KiraEventKey
     {
-        public class GameStart : IKiraEventKey { }
-        public class GameEnd : IKiraEventKey { }
+        public class GamePlay
+        {
+            public class GameStart : IKiraEventKey { }
+        }
     }
 }
-
-// 使用体验：完整的IDE提示和类型安全
-RegisterEvent<KiraEventKey.GamePlay.GameStart>(OnGameStart);
-// 输入"KiraEventKey."时，IDE自动提示所有可用选项
-// 输入"GamePlay."时，IDE提示GameStart、GameEnd等
 ```
 
-**技术优势**：
-1. **零学习成本**：符合C#开发者的直觉
-2. **零记忆负担**：不需要记住具体的事件键名称
-3. **零拼写错误**：IDE自动补全，避免手写错误
-
-#### 2.2.3 ViewModel自动生成
-**设计目标**：将UI数据绑定的样板代码自动化
-
-**工作流程**：
-1. **配置定义**：在配置中定义ViewModel需要的属性和命令
-2. **代码生成**：自动生成完整的ViewModel类，包括：
-   - 属性定义（支持INotifyPropertyChanged）
-   - 命令定义（ICommand实现）
-   - 数据验证逻辑
-   - 与Model的绑定代码
-3. **直接使用**：生成的ViewModel可直接在UI中使用
-
-**价值体现**：
-- **开发效率**：省去手写ViewModel的重复劳动
-- **代码质量**：生成的代码遵循最佳实践
-- **维护便利**：修改配置后重新生成即可
-
-#### 2.2.4 导表工作流集成
-**设计目标**：将配置表导出的工作流程标准化
-
-**计划实现**（使用Luban导Xlsx）：
-1. **配置表定义**：在Excel中定义数据结构
-2. **代码生成**：根据表结构自动生成：
-   - 数据类定义（强类型）
-   - 加载管理器
-   - 查询接口
-3. **运行时使用**：类型安全的数据访问
-
-**当前局限**：目前依赖Unity的ScriptableObject，计划改为Luban+Xlsx实现真正的配置与引擎解耦。
-
-### 2.3 工业化开发约束设计
-
-#### 2.3.1 强约束开发理念
-**核心思想**：通过框架约束开发者的行为，确保代码质量
-
-**约束方式**：
-1. **API设计约束**：只提供类型安全、IDE友好的API
-2. **代码生成约束**：关键代码必须通过生成器产生
-3. **配置驱动约束**：业务逻辑与配置分离
-
-#### 2.3.2 开发体验优化
-**IDE集成深度**：
-1. **代码补全**：利用C#的强类型提供完整提示
-2. **编译时检查**：在编写阶段发现潜在问题
-3. **重构支持**：重命名配置项时自动更新所有引用
-
-**开发流程标准化**：
-```
-配置阶段 → 生成阶段 → 使用阶段
-   ↓           ↓           ↓
-定义需求 → 自动编码 → 业务开发
-```
-
-## 三、关键技术实现
-
-### 3.1 链式调用生成机制
-
-#### 3.1.1 内部类结构设计
-通过嵌套的内部类实现链式调用：
 ```csharp
-// 生成的代码结构
-namespace KiraEventKey
+namespace Game.Statics
 {
-    public static class GamePlay
+    public static class KiraAssetsPath
     {
-        public class GameStart : IKiraEventKey { }
-        public class GameEnd : IKiraEventKey { }
-    }
-    
-    public static class Player
-    {
-        public class OnHpChanged : IKiraEventKey { }
+        public class UI
+        {
+            public class Panel
+            {
+                public const string TestPanel = "Assets/Prefabs/UI/TestPanel";
+            }
+        }
     }
 }
+```
 
-// 使用方式：链式调用
+这套机制把字符串路径和事件键转换为 C# 类型树。业务代码可以依赖编译器和 IDE 发现非法引用，而不是在运行时才发现字符串拼写错误。
+
+## 事件系统
+
+`EventManager` 使用两个字典保存事件：
+
+- `Dictionary<Type, Action>`：无参数事件
+- `Dictionary<Type, Delegate>`：带参数事件
+
+事件 API 使用 `where T : IKiraEventKey` 约束事件键：
+
+```csharp
 RegisterEvent<KiraEventKey.GamePlay.GameStart>(OnGameStart);
+FireEvent<KiraEventKey.GamePlay.GameStart>();
+
+RegisterEvent<KiraEventKey.Player.OnHpChanged, float>(OnHpChanged);
 FireEvent<KiraEventKey.Player.OnHpChanged, float>(80.5f);
 ```
 
-#### 3.1.2 代码生成逻辑
-1. **解析SO配置**：读取ScriptableObject中的配置数据
-2. **构建类型树**：根据配置结构构建内部类嵌套关系
-3. **生成C#代码**：按照模板生成类型安全的静态类
-4. **编译时集成**：生成的代码参与项目编译
+`KiraObject` 封装了事件注册、注销和触发方法，使继承自 `MonoBehaviour` 的业务对象可以直接使用生成的事件类型。
 
-### 3.2 类型安全事件系统
+当前事件系统已经具备：
 
-#### 3.2.1 泛型事件管理器
+- 编译期事件键约束
+- 无参事件分发
+- 单参数事件分发
+- 参数类型冲突检测
+- 全量事件清理入口
+
+## UI 系统
+
+`UIManager` 负责 UI 页面实例化、分层、显示、隐藏、关闭和缓存。初始化时遍历 `UILayer` 枚举，为每个层级创建独立 Canvas，并用枚举值控制 `sortingOrder`。
+
+页面显示流程：
+
+```text
+Show<T>(prefabPath, data)
+-> 检查页面是否已打开
+-> Resources.Load<GameObject>(prefabPath)
+-> Instantiate
+-> 获取 UIBase 子类组件
+-> 挂到对应 UILayer Canvas
+-> 调用 OnShow(data)
+```
+
+`UIBase` 定义页面生命周期：
+
+- `OnShow(object data = null)`
+- `OnHide()`
+- `OnClose()`
+
+当前 `UIManager` 直接依赖 `Resources.Load`、`Canvas`、`GraphicRaycaster`、`Transform` 和 `GameObject`，因此它属于 Unity 适配层性质的早期实现。
+
+## UI View 代码生成
+
+`PrefabContextMenu` 在 Project 视图中为 Prefab 提供菜单入口：
+
+```text
+Assets/Kira工具/MVVM/为UI预制体生成View脚本
+```
+
+`PrefabScriptGenerator` 会递归扫描 Prefab：
+
+- 收集当前节点上的非 `Transform` 组件。
+- 根据节点名和组件类型生成字段名。
+- 自动收集需要的 `using`。
+- 使用 `HashSet` 避免字段名冲突。
+- 遇到子节点包含 `KiraObject` 组件时，把该节点视为子 View 边界，只引用该组件，不继续向下展开。
+- 生成 `partial class` 和 `#region AutoGenerated`。
+
+生成示例：
+
 ```csharp
-public class EventManager
+public partial class TestPanel : KiraObject
 {
-    // 无参数事件字典
-    private readonly Dictionary<Type, Action> _eventDict = new Dictionary<Type, Action>();
-    
-    // 带参数事件字典
-    private readonly Dictionary<Type, Delegate> _eventArgDict = new Dictionary<Type, Delegate>();
-    
-    public void RegisterEvent<T>(Action listener) where T : IKiraEventKey;
-    public void FireEvent<T>() where T : IKiraEventKey;
+#region AutoGenerated
+    [SerializeField] private CanvasRenderer testPanel_canvasRenderer;
+    [SerializeField] private Image testPanel_image;
+    [SerializeField] private TextMeshProUGUI customTMP_textMeshProUGUI;
+#endregion
+
+    // 在此区域外编写逻辑
 }
 ```
 
-#### 3.2.2 类型约束优势
-1. **编译时检查**：错误的事件类型在编译时被发现
-2. **智能提示**：IDE提供完整的代码补全
-3. **重构安全**：重命名事件时自动更新所有引用
+如果脚本已经存在，生成器只替换 `AutoGenerated` 区域，并合并缺失的 `using`，尽量保留区域外的手写逻辑。
 
-### 3.3 响应式数据绑定
+`DeferredBinder` 用 `EditorPrefs` 暂存绑定任务，在脚本重编译后通过 `AssemblyReloadEvents.afterAssemblyReload` 加载 Prefab，添加或获取新生成脚本组件，再通过 `SerializedObject` 将扫描到的组件引用写回字段。
 
-#### 3.3.1 ViewModel基类设计
+## MVVM 生成链路
+
+Model 通过特性暴露给工具链：
+
 ```csharp
-public abstract class ViewModelBase : MonoBehaviour
+[MVVMModel]
+public class TestHPModel
 {
-    // 属性变更通知机制
-    protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null);
-    
-    // 命令执行机制
-    protected ICommand CreateCommand(Action execute, Func<bool> canExecute = null);
+    [MVVMField]
+    public int CurrentHP;
+
+    [MVVMField]
+    public int MaxHP;
 }
 ```
 
-#### 3.3.2 数据绑定流程
-1. **配置定义**：在SO中定义ViewModel属性
-2. **代码生成**：生成具体的ViewModel类
-3. **UI绑定**：UI组件绑定到ViewModel属性
-4. **自动更新**：属性变更自动触发UI更新
+`MVVMDataCache` 在编辑器加载时扫描程序集：
 
-## 四、框架使用流程
+- 只扫描 `Assembly-CSharp` 或指定项目程序集。
+- 查找带 `MVVMModelAttribute` 的类。
+- 查找带 `MVVMFieldAttribute` 的 public 字段或属性。
+- 缓存字段名和字段类型。
+- 将常用类型映射为 C# 友好名称，例如 `System.Int32 -> int`。
 
-### 4.1 配置阶段
-1. **创建配置SO**：在Unity编辑器中创建各种配置
-2. **定义事件结构**：在事件配置中定义事件键
-3. **定义资源路径**：在资源配置中定义路径结构
-4. **定义UI结构**：在UI配置中定义面板和层级
+`ModelFieldBindingDrawer` 为 `ViewModelConfigSO.Bindings` 提供 Inspector 下拉框：
 
-### 4.2 代码生成阶段
-1. **执行生成命令**：触发代码生成器
-2. **生成静态类**：自动生成类型安全的C#代码
-3. **编译集成**：生成的代码参与项目编译
+- 第一个下拉框选择 Model。
+- 第二个下拉框选择该 Model 暴露的字段。
+- 当 Model 或字段缺失时显示 `(MISSING)` 并用红色提示。
 
-### 4.3 开发使用阶段
-1. **事件注册**：使用链式调用注册事件
-2. **资源加载**：使用生成的路径类加载资源
-3. **UI管理**：使用生成的UI类管理界面
-4. **数据绑定**：使用生成的ViewModel进行数据绑定
+`ViewModelGenerator` 根据 `ViewModelConfigSO` 生成继承 `ViewModelBase` 的 ViewModel：
 
-### 4.4 示例：完整工作流
 ```csharp
-// 1. 注册事件（类型安全，链式调用）
-RegisterEvent<KiraEventKey.GamePlay.GameStart>(OnGameStart);
-
-// 2. 加载资源（配置驱动，避免硬编码）
-var panelPrefab = Resources.Load<KiraAssetsPath.UI.Prefabs.MainPanel>();
-
-// 3. 显示UI（自动生成的UI管理）
-UIManager.Instance.ShowPanel<GeneratedUI.MainGamePanel>();
-
-// 4. 数据绑定（响应式更新）
-var viewModel = new TestHPViewModel();
-viewModel.HP.BindTo(hpSlider);
+public class TestHPViewModel : ViewModelBase
+{
+    private int _TestHPModel_CurrentHP;
+    public int TestHPModel_CurrentHP
+    {
+        get => _TestHPModel_CurrentHP;
+        set => SetProperty(ref _TestHPModel_CurrentHP, value);
+    }
+}
 ```
 
-## 五、框架优势分析
+`ViewModelBase` 实现 `INotifyPropertyChanged`，并提供 `SetProperty<T>`，用于属性变更检测和通知。
 
-### 5.1 开发效率提升
-1. **减少硬编码**：所有配置集中管理
-2. **代码自动生成**：避免重复劳动
-3. **智能提示**：IDE提供完整代码补全
-4. **错误预防**：编译时类型检查
+当前 MVVM 链路的重点是“元数据发现 -> Inspector 绑定 -> 属性包装生成”，不是完整的数据绑定框架。
 
-### 5.2 代码质量保障
-1. **类型安全**：泛型约束确保类型正确
-2. **可维护性**：配置驱动，修改成本低
-3. **一致性**：统一的设计模式和API风格
-4. **可测试性**：组件解耦，易于单元测试
+## Excel 配置管线
 
-### 5.3 团队协作优化
-1. **配置标准化**：所有配置统一格式
-2. **文档自动生成**：代码即文档
-3. **新人上手快**：统一的开发模式
-4. **代码审查简单**：规范化的代码结构
+`ExcelConfigTool` 使用 NPOI 处理 `.xlsx`，使用 Newtonsoft.Json 导出 JSON。当前 Excel 结构约定：
 
-## 六、扩展性与定制化
+| 行号 | 含义 |
+| --- | --- |
+| 第 1 行 | `ModelName:ClassName` |
+| 第 2 行 | 中文字段名 |
+| 第 3 行 | 英文字段名 |
+| 第 4 行 | 字段类型 |
+| 第 5 行 | 描述 |
+| 第 6 行起 | 数据区 |
 
-### 6.1 框架扩展点
-1. **自定义配置类型**：继承基类创建新的配置类型
-2. **自定义生成器**：扩展代码生成逻辑
-3. **自定义绑定器**：实现特殊的数据绑定需求
-4. **自定义事件类型**：支持复杂的事件参数
+支持的字段类型包括：
 
-### 6.2 多引擎支持策略
-1. **抽象核心接口**：定义与引擎无关的接口
-2. **引擎适配层**：为不同引擎实现适配器
-3. **配置格式统一**：使用JSON等通用格式
-4. **代码生成模板化**：支持不同引擎的代码模板
+- `string`
+- `int` / `integer`
+- `float` / `single` / `double`
+- `bool` / `boolean`
 
-### 6.3 性能优化考虑
-1. **事件系统优化**：使用委托缓存减少查找开销
-2. **资源加载优化**：异步加载和缓存机制
-3. **UI渲染优化**：Canvas分层和合批优化
-4. **内存管理优化**：对象池和资源释放
+工具入口：
 
-## 七、设计价值与学习收获
-
-### 7.1 框架设计价值
-虽然KiraFramework尚未在实际项目中应用，但其设计体现了对工业化开发的深刻思考：
-
-#### 7.1.1 技术探索价值
-1. **代码生成实践**：探索了在游戏开发中大规模应用代码生成的可行性
-2. **开发体验优化**：验证了强类型+IDE提示对开发效率的提升
-3. **配置驱动架构**：实践了配置与代码分离的设计理念
-
-#### 7.1.2 设计理念验证
-1. **工业化开发模式**：验证了通过框架约束提升代码质量的思路
-2. **工具链思维**：体现了"好工具提升生产力"的工程理念
-3. **开发者体验优先**：证明了优秀的开发体验能提升整体效率
-
-### 7.2 个人能力提升
-通过设计KiraFramework，获得了以下能力提升：
-
-#### 7.2.1 架构设计能力
-1. **抽象思维能力**：从具体问题中抽象出通用解决方案
-2. **系统设计能力**：设计可扩展、可维护的框架架构
-3. **技术选型能力**：评估不同技术方案的优劣
-
-#### 7.2.2 工程实践能力
-1. **代码生成技术**：掌握基于模板的代码生成技术
-2. **工具链开发**：理解开发工具的设计和实现
-3. **开发者体验设计**：学习如何优化开发者的使用体验
-
-#### 7.2.3 问题解决能力
-1. **痛点识别**：准确识别开发中的重复劳动和低效环节
-2. **方案设计**：设计切实可行的技术解决方案
-3. **实现验证**：通过原型验证设计方案的可行性
-
-## 八、总结、局限与演进方向
-
-### 8.1 框架核心价值重述
-KiraFramework的核心价值在于**探索和实践工业化开发的最佳实践**，特别是：
-
-1. **代码生成优先**：证明通过生成器消除手写代码的可行性
-2. **开发体验极致化**：验证强类型+完整IDE提示对效率的提升
-3. **工业化约束设计**：实践通过框架约束保障代码质量的理念
-
-### 8.2 当前局限与改进方向
-
-#### 8.2.1 平台依赖问题
-**当前状态**：依赖Unity的ScriptableObject，限制了跨平台能力
-**改进方向**：改用Luban导Xlsx配置，实现真正的配置与引擎解耦
-
-#### 8.2.2 实际验证缺失
-**当前状态**：尚未在真实项目中大规模应用验证
-**改进方向**：寻找合适的项目进行试点应用，收集实际使用反馈
-
-#### 8.2.3 工具链完整性
-**当前状态**：代码生成器功能相对基础
-**改进方向**：增强生成器的灵活性和可配置性，支持更多代码模式
-
-### 8.3 技术演进规划
-
-#### 8.3.1 短期改进（1-3个月）
-1. **配置系统重构**：从ScriptableObject迁移到Luban+Xlsx
-2. **生成器增强**：支持更多代码模板和自定义选项
-3. **文档完善**：提供完整的使用指南和最佳实践
-
-#### 8.3.2 中期发展（3-12个月）
-1. **多语言支持**：扩展对Lua、Python等脚本语言的代码生成
-2. **可视化工具**：开发配置编辑和代码预览的图形化工具
-3. **性能优化**：优化生成代码的性能和内存使用
-
-#### 8.3.3 长期愿景（1年以上）
-1. **真正的跨平台**：支持Unity、Unreal、自研引擎等多个平台
-2. **云原生集成**：与云开发平台和CI/CD流水线深度集成
-3. **生态建设**：建立插件系统和社区贡献机制
-
-### 8.4 设计理念的普适性价值
-
-虽然KiraFramework目前是学习性质的原型，但其设计理念具有普适价值：
-
-#### 8.4.1 对个人开发者的价值
-1. **技术能力提升**：通过框架设计深入理解架构和工程化
-2. **思维模式训练**：培养系统性思考和问题解决能力
-3. **职业发展助力**：展示对工业化开发的理解和实践能力
-
-#### 8.4.2 对团队的价值
-1. **开发规范落地**：通过框架将最佳实践固化为标准
-2. **新人培养加速**：降低学习曲线，快速上手
-3. **代码质量保障**：通过约束减少低级错误和不一致
-
-#### 8.4.3 对行业的价值
-1. **工具链探索**：为游戏开发工具链的演进提供参考
-2. **工程实践分享**：贡献工业化开发的经验和教训
-3. **开发者体验关注**：推动行业对开发体验的重视
-
-### 8.5 最终建议
-
-#### 给框架设计者的建议：
-1. **保持学习心态**：将框架作为技术探索和学习的平台
-2. **注重实际验证**：寻找机会在实际项目中验证设计
-3. **持续迭代优化**：根据使用反馈不断改进和完善
-
-#### 给技术学习者的启示：
-1. **从问题出发**：好的框架源于对实际痛点的深刻理解
-2. **重视开发体验**：优秀的工具应该让开发者更高效、更愉快
-3. **平衡理想与现实**：在技术理想和工程可行性间找到平衡点
-
-#### 给工业化开发的思考：
-1. **自动化是方向**：重复性工作应该交给工具完成
-2. **约束创造自由**：适当的约束反而能提升创造力和效率
-3. **体验决定效率**：开发者的使用体验直接影响生产力
-
----
-
-## 附录：框架目录结构参考
-
-```
-Assets/
-├── Scripts/
-│   ├── Core/
-│   │   ├── Base/           # 基础类（KiraObject, IKiraEventKey）
-│   │   ├── Manager/        # 管理器（EventManager, UIManager）
-│   │   └── SO_Script/      # ScriptableObject配置脚本
-│   ├── MVVM/
-│   │   ├── Model/          # 数据模型
-│   │   ├── VM/             # 视图模型
-│   │   └── VMSO/           # ViewModel配置
-│   └── Generated/          # 自动生成代码
-│       ├── GeneratedEnums/ # 生成的枚举
-│       ├── GeneratedUI/    # 生成的UI类
-│       └── KiraStatics/    # 生成的静态资源类
-├── Configs/                # 配置文件目录
-├── Editor/                 # 编辑器工具
-└── Resources/              # 资源文件
+```text
+Kira工具/配置文件/0. 创建模板XLSX文件
+Kira工具/配置文件/1. 一键导表（自动生成模型 + JSON）
+Kira工具/配置文件/2. 仅生成 JSON 数据 (无需编译)
 ```
 
----
+一键导表流程：
 
-## 文档更新说明
+```text
+遍历 Excels/*.xlsx
+-> 读取 ModelName
+-> 解析表头
+-> 生成/更新 GeneratedJsonScripts/*.cs
+-> 若脚本有变化则刷新 AssetDatabase 并等待编译
+-> 编译/导入回调后导出 Resources/ConfigJson/*.json
+-> 若未触发编译，使用定时器兜底直接导出 JSON
+```
 
-### 关键修正（基于框架作者反馈）：
-1. **框架定位修正**：KiraFramework是**以学习提升为目的**的设计原型，尚未在实际线上游戏中应用
-2. **设计重心明确**：核心是**代码生成、工业化开发、强约束IDE提示**，其他组件为配套
-3. **平台依赖澄清**：当前依赖Unity ScriptableObject，**计划改用Luban导Xlsx**实现真正跨平台
-4. **应用状态说明**：框架**未在《无限暖暖》或其他线上项目应用**，是个人技术探索成果
+生成的模型包含：
 
-### 文档特点：
-- ✅ **以解释设计思路为主**：重点分析框架的设计理念和架构决策
-- ✅ **少贴代码多分析**：只展示关键接口，重点解释设计思想
-- ✅ **准确反映现状**：明确框架的学习性质和当前局限
-- ✅ **提供演进方向**：基于作者规划提出合理的技术演进路径
+- `IConfigData`
+- 配置数据类
+- 带 `Items` 列表的容器类
+- `JsonProperty` 字段映射
 
-### 分析价值：
-本文档不仅是对KiraFramework的技术分析，更是对**工业化开发理念**、**代码生成技术应用**、**开发者体验设计**等主题的深入探讨，具有普遍的技术参考价值。
+示例：
 
----
+```csharp
+public class NewConfigModel : IConfigData
+{
+    [JsonProperty("ID")]
+    public int ID { get; set; }
 
-*文档生成时间：2026年4月12日*
-*分析基于：KiraFramework Unity项目代码框架*
-*文档重点：设计思路解析，架构理念探讨，少贴代码多解释*
-*特别感谢：框架作者吉良吉影（杨磊）的宝贵反馈和修正*
+    [JsonProperty("Name")]
+    public string Name { get; set; }
+}
+
+public class NewConfigModelContainer
+{
+    [JsonProperty("newConfigModelList")]
+    public List<NewConfigModel> Items { get; set; } = new List<NewConfigModel>();
+}
+```
+
+JSON 导出阶段通过反射查找模型类型和容器类型，读取 Excel 数据行后写入 `Assets/Resources/ConfigJson`。
+
+## 枚举生成
+
+`EnumDefinitionAsset` 使用 `ScriptableObject` 保存枚举名和成员列表。`EnumDefinitionAssetEditor` 在 Inspector 中提供生成按钮，并输出到：
+
+```text
+Assets/Scripts/Generated/GeneratedEnums/
+```
+
+生成器会：
+
+- 将资产文件名同步到 `enumName`。
+- 清洗枚举名和成员名，保证是合法 C# 标识符。
+- 跳过空成员和重复成员。
+- 生成普通 C# enum。
+
+当前 `UILayer.asset` 生成的枚举为：
+
+```csharp
+public enum UILayer
+{
+    FullScreen,
+    PopWindow,
+    TopTip
+}
+```
+
+## 当前技术边界
+
+当前实现仍然强依赖 Unity：
+
+- 输入载体依赖 `ScriptableObject`、Prefab、Unity Inspector 和 Unity 菜单。
+- 生成器依赖 `AssetDatabase`、`EditorWindow`、`EditorPrefs`、`AssetPostprocessor`、`AssemblyReloadEvents`。
+- UI 运行时依赖 `MonoBehaviour`、`GameObject`、`Canvas`、`Resources.Load`。
+- Prefab 扫描与字段回填依赖 Unity Prefab API。
+- Excel 导出中的模型编译依赖 Unity 脚本刷新和编辑器回调。
+
+因此，当前代码不能直接跨引擎复用。可复用的主要是生成思想、配置语义、静态调用链命名体系、元数据管线和运行时抽象方向；Unity 相关宿主逻辑需要拆成适配层。
+
+## 主要技术问题
+
+当前代码已经跑通多条生成链路，但仍有一些工程问题需要继续收束：
+
+- 静态调用链叶子节点只有“事件类型”和“字符串常量”两类语义，缺少显式领域类型系统。
+- `MappingEntry` 只有 `PathKeys` 和 `FinalValue`，不足以表达资源类型、加载策略、UI 页面描述、Payload 类型等结构化元数据。
+- MVVM 元数据依赖编辑器实时反射扫描，尚未生成稳定注册表。
+- Excel 管线已经拆出“模型生成”和“JSON 导出”，但还没有完整 Schema、校验报告、版本清单和产物索引。
+- UI 生成器基于 Prefab 扫描，可自动回填字段，但与 Unity Prefab API 强绑定。
+- `UIManager` 直接使用 `Resources.Load`，后续应抽象为资源提供者接口。
+- 当前生成器之间各自读取原始输入，尚未统一到一个中间表示。
+
+## 推荐演进方向
+
+### 1. 引入统一中间表示
+
+先不要直接替换所有输入源，而是先把现有输入映射为统一的 `KiraManifest`：
+
+```text
+KiraManifest
+    StaticDefs
+    EventDefs
+    AssetDefs
+    UiPageDefs
+    ViewModelDefs
+    EnumDefs
+    ConfigTableDefs
+    Reports
+```
+
+后续所有生成器都读取 `KiraManifest`，而不是直接读取 `ScriptableObject`、Prefab 或 Excel。
+
+### 2. 静态调用链升级为值类型系统
+
+将当前“空值生成事件类型，非空生成字符串常量”的规则升级为领域化生成策略：
+
+| 领域 | 推荐生成策略 |
+| --- | --- |
+| `EventKey` | 生成实现事件接口的类型，可附带 Payload 元数据 |
+| `ResPath` | 生成资源路径常量或资源描述符 |
+| `UIPageKey` | 生成页面描述符，包含层级、Prefab、打开策略 |
+| `ConfigTableKey` | 生成配置表访问描述 |
+| `LocalizationKey` | 生成文本键 |
+| `AudioCueKey` | 生成音频事件或音频资源描述 |
+
+这样静态调用链不再只是字符串包装，而是领域接口生成系统。
+
+### 3. 拆分增量 API 生成与全量配置导出
+
+建议把配置管线拆成两套目标：
+
+```text
+增量 API 生成
+    面向本地开发即时反馈
+    输出静态接口、枚举、ViewModel 注册表等开发态产物
+
+全量配置导出
+    面向提交、CI、构建和发布
+    输出完整运行时数据、校验报告、版本清单、产物索引
+```
+
+本地开发可以快速增量生成，正式构建只接受全量构建结果。
+
+### 4. ViewModel 元数据缓存化
+
+将 `MVVMDataCache` 的实时反射扫描改为生成步骤：
+
+```text
+Attribute 标记
+-> 生成阶段扫描
+-> 输出 GeneratedMVVMRegistry
+-> Inspector 和 ViewModelGenerator 读取注册表
+```
+
+这样可以降低编辑器交互阶段的反射依赖，并把缺失字段、非法类型、命名冲突等问题前移到生成阶段。
+
+### 5. 从 ScriptableObject 迁移到 Luban + Xlsx
+
+`Luban + Xlsx` 不应直接替代所有 Kira 生成器，而应作为配置结构和运行时数据的标准化编译层：
+
+```text
+Luban
+    负责 Xlsx Schema、配置数据校验、多格式数据导出
+
+Kira Generator
+    负责静态 API、事件键、资源描述符、UI 描述符、ViewModel 注册表、引擎适配描述符生成
+```
+
+推荐优先迁移：
+
+1. 事件定义
+2. 资源路径定义
+3. 枚举定义
+4. 普通业务配置表
+5. UI 页面描述
+6. ViewModel 描述
+
+### 6. 拆分 Core、Toolchain 与 Unity Adapter
+
+后续可按如下边界拆分：
+
+```text
+Kira.Core
+    元数据模型、Manifest、运行时抽象接口
+
+Kira.Toolchain
+    配置读取、Schema 校验、代码生成、数据导出、报告生成
+
+Kira.UnityAdapter
+    Unity 资源系统、Prefab 扫描、UI Runtime、Editor 接入
+
+Kira.UnrealAdapter
+    UE 资产系统、UMG Runtime、编辑器接入
+```
+
+运行时可逐步抽象为：
+
+```text
+IAssetProvider
+IConfigProvider
+IUIRuntime
+IEventRuntime
+```
+
+当前的 `Resources.Load`、`UIManager`、`EventManager` 可以视为这些接口的 Unity 早期实现。
+
+## 推荐验证体系
+
+后续工具链应补充以下校验：
+
+- 静态路径冲突检测
+- 非法 C# 标识符检测
+- 同名节点跨领域冲突检测
+- 事件 Payload 类型合法性检测
+- 资源路径存在性检测
+- UI 页面描述完整性检测
+- Prefab 字段绑定缺失检测
+- ViewModel 绑定目标缺失检测
+- Excel 主键、外键、枚举引用检测
+- 增量生成结果与全量生成结果一致性检测
+
+同时建议生成以下产物：
+
+| 产物 | 作用 |
+| --- | --- |
+| `GenerationReport.md/json` | 记录本次生成文件、输入源、增量/全量模式和告警 |
+| `ValidationReport.md/json` | 记录校验错误和警告 |
+| `VersionManifest` | 记录输入签名、生成时间、导出版本 |
+| `ArtifactIndex` | 记录输入定义与生成产物的映射关系 |
+
+## 技术总结
+
+KiraFramework 当前已经具备一条清晰的工程化主线：
+
+```text
+配置表达事实
+-> 生成器产出接口
+-> 类型系统约束调用
+-> 编辑器阶段回填和导出
+-> 运行时消费生成产物
+```
+
+现有代码的重点价值在于静态调用链、Prefab View 生成、MVVM 元数据扫描、Excel 到模型与 JSON 的导出这些链路已经能够互相印证同一个方向：把字符串约定、手工绑定和重复样板代码前移到工具链阶段处理。
+
+下一阶段的技术重点应是统一中间表示、建立值类型系统、拆分增量与全量构建、生成 MVVM 注册表、迁移到 `Luban + Xlsx`，并把 Unity 依赖压缩到 Adapter 层。
